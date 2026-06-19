@@ -1,0 +1,23 @@
+services:
+  dashboard:
+    build: .
+    image: phone-dashboard:latest
+    container_name: phone-dashboard
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      DB_PATH: /data/dashboard.db
+      PORT: "8080"
+      # gopsutil reads the host metrics through these mounted paths.
+      HOST_PROC: /host/proc
+      HOST_SYS: /host/sys
+    volumes:
+      - dashboard-data:/data
+      # Read-only host mounts so the container sees the real device metrics
+      # (CPU/RAM via /proc, battery + temperatures via /sys).
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+
+volumes:
+  dashboard-data:

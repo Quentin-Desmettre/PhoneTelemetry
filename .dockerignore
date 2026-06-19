@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+frontend/.vite
+backend/dashboard
+*.db
+*.db-shm
+*.db-wal
+.git
+.DS_Store
+README.md
