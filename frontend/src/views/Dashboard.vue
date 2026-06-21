@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import { useMetricsStore } from '../stores/metrics'
 import { useSettingsStore } from '../stores/settings'
@@ -88,6 +88,29 @@ const tempList = computed(() => {
   return Object.entries(t).map(([name, value]) => ({ name, value }))
 })
 
+// Aggregate stats (min/max/avg) over the current temperature sensors.
+const tempStats = computed(() => {
+  const list = tempList.value
+  if (!list.length) return null
+  let max = list[0]
+  let min = list[0]
+  let sum = 0
+  for (const t of list) {
+    if (t.value > max.value) max = t
+    if (t.value < min.value) min = t
+    sum += t.value
+  }
+  return {
+    count: list.length,
+    max,
+    min,
+    avg: sum / list.length,
+  }
+})
+
+// Whether the full per-sensor detail (cards + chart) is expanded.
+const showAllTemps = ref(false)
+
 const lastUpdated = computed(() => {
   if (!cur.value) return ''
   return new Date(cur.value.ts * 1000).toLocaleTimeString('fr-FR')
@@ -118,6 +141,36 @@ const tempSeries = computed(() => {
     color: palette[i % palette.length],
     points,
   }))
+})
+
+// Min/max/avg across all sensors, computed per shared timestamp.
+const tempAggSeries = computed(() => {
+  const h = metrics.history
+  if (!h || !h.temps) return []
+  const buckets = new Map() // ts -> [values]
+  for (const points of Object.values(h.temps)) {
+    for (const pt of points || []) {
+      if (!buckets.has(pt.ts)) buckets.set(pt.ts, [])
+      buckets.get(pt.ts).push(pt.value)
+    }
+  }
+  if (!buckets.size) return []
+  const maxPts = []
+  const minPts = []
+  const avgPts = []
+  for (const [ts, vals] of buckets) {
+    const max = Math.max(...vals)
+    const min = Math.min(...vals)
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length
+    maxPts.push({ ts, value: +max.toFixed(1) })
+    minPts.push({ ts, value: +min.toFixed(1) })
+    avgPts.push({ ts, value: +avg.toFixed(1) })
+  }
+  return [
+    { label: 'Max', color: '#ef4444', points: maxPts },
+    { label: 'Moyenne', color: '#6366f1', points: avgPts },
+    { label: 'Min', color: '#06b6d4', points: minPts },
+  ]
 })
 
 function setRange(r) {
@@ -182,16 +235,52 @@ function setRange(r) {
         </MetricCard>
       </section>
 
-      <!-- Temperature cards -->
-      <section v-if="tempList.length" class="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-        <MetricCard
-          v-for="t in tempList"
-          :key="t.name"
-          :label="t.name"
-          icon="🌡️"
-          :value="t.value.toFixed(1)"
-          unit="°C"
-        />
+      <!-- Temperature summary (min / max / avg) -->
+      <section v-if="tempStats" class="mt-4">
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="text-sm font-medium text-slate-400">
+            🌡️ Températures
+            <span class="text-slate-600">· {{ tempStats.count }} capteurs</span>
+          </h2>
+          <button class="btn-ghost text-xs" @click="showAllTemps = !showAllTemps">
+            {{ showAllTemps ? 'Masquer les capteurs' : 'Afficher tous les capteurs' }}
+          </button>
+        </div>
+
+        <div class="grid grid-cols-3 gap-4">
+          <MetricCard
+            label="Temp. max"
+            icon="🔥"
+            :value="tempStats.max.value.toFixed(1)"
+            unit="°C"
+            :sub="tempStats.max.name"
+          />
+          <MetricCard
+            label="Temp. moyenne"
+            icon="🌡️"
+            :value="tempStats.avg.toFixed(1)"
+            unit="°C"
+          />
+          <MetricCard
+            label="Temp. min"
+            icon="❄️"
+            :value="tempStats.min.value.toFixed(1)"
+            unit="°C"
+            :sub="tempStats.min.name"
+          />
+        </div>
+
+        <!-- Detailed per-sensor cards (collapsed by default) -->
+        <div v-if="showAllTemps" class="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          <MetricCard
+            v-for="t in tempList"
+            :key="t.name"
+            :label="t.name"
+            icon="🌡️"
+            :value="t.value.toFixed(1)"
+            unit="°C"
+          />
+        </div>
       </section>
 
       <!-- Range selector -->
@@ -204,7 +293,22 @@ function setRange(r) {
       <section class="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <MetricChart title="Système (CPU / RAM / Disque)" unit="%" :y-max="100" :series="systemSeries" :range="metrics.range" />
         <MetricChart v-if="batterySeries.length" title="Batterie" unit="%" :y-max="100" :series="batterySeries" :range="metrics.range" />
-        <MetricChart v-if="tempSeries.length" title="Températures" unit="°C" :series="tempSeries" :range="metrics.range" class="xl:col-span-2" />
+        <MetricChart
+          v-if="tempAggSeries.length"
+          title="Températures (min / moy / max)"
+          unit="°C"
+          :series="tempAggSeries"
+          :range="metrics.range"
+          class="xl:col-span-2"
+        />
+        <MetricChart
+          v-if="showAllTemps && tempSeries.length"
+          title="Températures (tous les capteurs)"
+          unit="°C"
+          :series="tempSeries"
+          :range="metrics.range"
+          class="xl:col-span-2"
+        />
       </section>
     </template>
   </div>
