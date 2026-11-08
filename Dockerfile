@@ -20,7 +20,7 @@ RUN go mod tidy
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o /dashboard .
 
 # --- Stage 3: minimal runtime image ----------------------------------------
-FROM alpine:3.20
+FROM alpine:3.23
 RUN apk add --no-cache ca-certificates && mkdir -p /data
 COPY --from=backend /dashboard /usr/local/bin/dashboard
 ENV DB_PATH=/data/dashboard.db \
@@ -29,4 +29,6 @@ ENV DB_PATH=/data/dashboard.db \
     HOST_PROC=/host/proc
 EXPOSE 8080
 VOLUME ["/data"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD wget -q --spider http://127.0.0.1:8080/api/status || exit 1
 ENTRYPOINT ["/usr/local/bin/dashboard"]

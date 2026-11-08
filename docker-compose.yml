@@ -4,14 +4,26 @@ services:
     image: phone-dashboard:latest
     container_name: phone-dashboard
     restart: unless-stopped
+    # Servi par Traefik (Dokploy) : le port n'est publié qu'en local, jamais sur le réseau.
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       DB_PATH: /data/dashboard.db
       PORT: "8080"
       # gopsutil reads the host metrics through these mounted paths.
       HOST_PROC: /host/proc
       HOST_SYS: /host/sys
+    # Durcissement (testé : démarre, écrit /data, collecte les métriques).
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 192m
+    cpus: "1.0"
+    pids_limit: 128
     volumes:
       - dashboard-data:/data
       # Read-only host mounts so the container sees the real device metrics
